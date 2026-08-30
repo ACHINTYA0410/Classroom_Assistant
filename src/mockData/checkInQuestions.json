@@ -1,0 +1,22 @@
+[
+  {
+    "id": 1,
+    "question": "What's the most interesting thing you've learned so far today?",
+    "animationUrl": "https://assets9.lottiefiles.com/packages/lf20_b6cz45ww.json"
+  },
+  {
+    "id": 2,
+    "question": "How are you feeling about this topic? Is it making sense?",
+    "animationUrl": "https://assets2.lottiefiles.com/packages/lf20_u4yrau.json"
+  },
+  {
+    "id": 3,
+    "question": "Take a deep breath! What is one word to describe your focus right now?",
+    "animationUrl": "https://assets3.lottiefiles.com/packages/lf20_UJNc2t.json"
+  },
+  {
+    "id": 4,
+    "question": "If you had to teach this to a friend, what would you say first?",
+    "animationUrl": "https://assets9.lottiefiles.com/packages/lf20_b6cz45ww.json"
+  }
+]

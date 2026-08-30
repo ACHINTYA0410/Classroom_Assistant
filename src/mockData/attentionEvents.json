@@ -1,0 +1,4 @@
+{
+  "states": ["focused", "focused", "needs_break", "focused"],
+  "triggerIntervalMs": 30000 
+}
