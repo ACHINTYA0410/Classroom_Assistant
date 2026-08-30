@@ -616,28 +616,13 @@ export const completeQuizAttempt = async (attemptId: string) => {
 
   if (attemptError || !attempt) throw new Error('Attempt not found');
 
-  // Find all questions associated with topics in the quiz's week
-  const { data: quiz } = await supabase
-    .from('quizzes')
-    .select('week_id')
-    .eq('id', attempt.quiz_id)
-    .single();
-
-  if (!quiz) throw new Error('Quiz not found');
-
-  const { data: sessions } = await supabase
-    .from('sessions')
-    .select('topic_id')
-    .eq('week_id', quiz.week_id);
-
-  const topicIds = Array.from(new Set((sessions ?? []).map((s: any) => s.topic_id).filter(Boolean)));
-
-  const { data: allQuestions } = await supabase
-    .from('questions')
+  // Count the number of questions actually generated for this specific attempt
+  const { data: attemptQuestions } = await supabase
+    .from('quiz_attempt_questions')
     .select('id')
-    .in('topic_id', topicIds);
+    .eq('quiz_attempt_id', attemptId);
 
-  const totalQuestions = allQuestions?.length || 0;
+  const totalQuestions = attemptQuestions?.length || 7;
 
   // Retrieve student's submitted responses
   const { data: responses } = await supabase
