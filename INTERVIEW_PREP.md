@@ -1,70 +1,91 @@
-# Inclusive Classroom Assistant - Interview Prep Guide
+# Inclusive Classroom Assistant - Comprehensive Technical Guide
 
-## 1. Project Workflow & Architecture
-
-### High-Level User Flow
-1.  **Authentication/Onboarding**: Student logs in securely (managed via Supabase RLS).
-2.  **Learning Phase (Teaching Agent)**:
-    *   Student selects a topic (e.g., Grade 3 Addition).
-    *   **RAG Process**: The system queries the Supabase `pgvector` database for curriculum embeddings matching the topic.
-    *   **Generation**: The Teaching Agent (Google Gemini) generates a personalized explanation grounded in the retrieved curriculum, adapting the tone for an ADHD profile (calm, focused, analogy-rich).
-    *   **Engagement**: UI incorporates "Attention Check-ins" (Lottie breathing animations) to reduce cognitive load.
-3.  **Assessment Phase (Quiz Agent)**:
-    *   The Quiz Agent selects questions adaptively.
-    *   It checks the `student_progress` table for `primary_misconception_tag`s and mastery status (`weak`, `in_progress`, `mastered`).
-    *   Questions are targeted at the student's specific weak spots.
-4.  **Feedback & Reporting Phase (Report Agent)**:
-    *   Student answers are evaluated.
-    *   The Report Agent analyzes deterministic stats (score delta, accuracy) and uses Gemini to write a plain-language narrative report.
-    *   The database (`agent_decisions` and `student_progress`) is updated with the latest interaction data.
-
-### Multi-Agent Orchestration (Graph-Based Routing)
-The core innovation is the orchestration of three distinct AI agents:
-*   **Teaching Agent**: RAG-based content delivery.
-*   **Quiz Agent**: Adaptive assessment logic.
-*   **Report Agent**: Data analysis and natural language generation.
-*   *Orchestrator*: A central router that directs the flow between these agents based on the user's state in the application, ensuring context is passed correctly and decisions are logged centrally.
+This document is a deep dive into the **Inclusive Classroom Assistant**, detailing exactly what the project does, the technical architecture, how the AI agents are implemented at the code level, and how to discuss these in a technical interview.
 
 ---
 
-## 2. Technical Deep Dive (Interview Talking Points)
+## 1. What the Project Does (Product Vision)
 
-### **Frontend (React, TypeScript, Vite)**
-*   **Why React/TypeScript?** React provides a component-based architecture for managing complex UI states (like switching between learning, quizzing, and animations). TypeScript ensures type safety, which is crucial when handling complex data structures returned by the AI agents and Supabase.
-*   **ADHD-Specific UI/UX**:
-    *   Minimalist design to prevent overstimulation.
-    *   Integrated Lottie animations for non-intrusive breaks (breathing/wave) and positive reinforcement (star pop/confetti).
-    *   Built-in Text-to-Speech (TTS) using browser `speechSynthesis` (with an ElevenLabs fallback) to support auditory learners.
+The **Inclusive Classroom Assistant** is a web-based, AI-driven learning platform designed specifically for students with ADHD in Grades 2–5. It teaches mathematics through a highly adaptive, multi-agent system.
 
-### **Backend & Database (Supabase, PostgreSQL)**
-*   **Why Supabase over Firebase/MongoDB?** Supabase provides a full PostgreSQL database, which is necessary for `pgvector` (essential for RAG). It also offers robust Row Level Security (RLS).
-*   **Vector Database (`pgvector`)**:
-    *   *How it works*: Curriculum text (chapters, lessons) is converted into high-dimensional vectors (embeddings) using Google's `gemini-embedding-001` model.
-    *   *Search*: When a student needs help, their query is embedded, and `pgvector` performs a cosine similarity search to find the most relevant curriculum chunks.
-*   **Data Modeling for Tracking**:
-    *   `student_progress`: Tracks mastery state (`weak`, `in_progress`, `mastered`) and specific `primary_misconception_tag`s per topic. This is the engine driving the Quiz Agent's adaptivity.
-    *   `agent_decisions`: An audit log. It stores *why* an agent made a decision (e.g., the input context, the chosen action, and the reasoning). This provides observability into the AI's behavior.
-*   **Security**: Row Level Security (RLS) ensures that a student can only query and mutate their own progress data.
-
-### **AI Integration (Google Gemini)**
-*   **Model Choice**: `gemini-3.6-flash` is used for its speed and context window, making real-time multi-agent orchestration feasible. `gemini-embedding-001` handles the vectorization.
-*   **Prompt Engineering Techniques**:
-    *   *System Prompts*: Enforcing a specific persona (calm, patient tutor).
-    *   *Few-Shot Prompting*: Providing examples of how to rewrite content using analogies.
-    *   *Context Injection*: Injecting the RAG results (curriculum) and the student's current misconception tags into the prompt to ground the response.
+**Key Product Features:**
+1.  **Distraction-Free UX**: Minimalist UI, integrating Lottie animations (e.g., breathing exercises) for cognitive breaks (Attention Check-ins) without overstimulating the user.
+2.  **Adaptive Learning (RAG)**: When teaching a lesson, the app dynamically generates explanations. It pulls from a verified curriculum database and rewrites the content using analogies suitable for a 7-8-year-old.
+3.  **Targeted Quizzing**: Instead of generic questions, the app analyzes exactly *why* a student is failing (e.g., "forgets to carry the one" in addition) and procedurally generates questions to target that specific misconception.
+4.  **Friendly Reporting**: It converts raw scores into encouraging, plain-language narrative reports for the student and educator.
 
 ---
 
-## 3. Potential Interview Questions & How to Answer Them
+## 2. Technical Architecture & Tech Stack
 
-**Q1: Explain how Retrieval-Augmented Generation (RAG) works in your project.**
-*   **Answer**: "We embedded approved Grade 2-5 math curriculum into a Supabase PostgreSQL database using the `pgvector` extension. When a student asks a question, we convert their query into an embedding, perform a similarity search in Supabase to fetch the relevant curriculum text, and pass that text as context to the Gemini Teaching Agent. This ensures the AI tutor doesn't hallucinate and only teaches approved material."
+*   **Frontend**: React, TypeScript, Vite. (Tailwind/Vanilla CSS for UI).
+*   **Database**: Supabase (PostgreSQL).
+    *   **Vector Database**: `pgvector` extension is used to store high-dimensional embeddings of the curriculum.
+    *   **Security**: PostgreSQL Row Level Security (RLS) ensures students only access their own progress data.
+*   **AI Models (Google Gemini via REST APIs)**:
+    *   `gemini-embedding-001`: Used to convert text into 768-dimensional vector embeddings.
+    *   `gemini-3.6-flash`: The core Large Language Model (LLM) used for text generation, RAG synthesis, and report writing.
+*   **Audio**: Browser-native `speechSynthesis` API for Text-to-Speech (with an ElevenLabs fallback).
 
-**Q2: How does the system adapt to the student's learning pace?**
-*   **Answer**: "The Quiz Agent drives adaptivity. We maintain a `student_progress` table that tracks mastery levels and specific `misconception_tags` (e.g., 'struggles with carrying over in addition'). Before generating a quiz, the agent queries this table. If a student has a specific misconception tag, the agent dynamically selects or generates questions targeting that exact weak spot."
+---
 
-**Q3: How did you design the application specifically for students with ADHD?**
-*   **Answer**: "We minimized visual clutter in the UI to reduce cognitive load. More importantly, we integrated 'Attention Check-ins'—interstitial breaks using calm Lottie animations (like a breathing circle) to help them refocus. We also implemented Text-to-Speech (TTS) for auditory learning support, and the AI agent is prompted to use analogy-rich, bite-sized explanations."
+## 3. The Multi-Agent System: How We Actually Did It
 
-**Q4: Why did you log `agent_decisions`? Isn't that a lot of data?**
-*   **Answer**: "In an educational setting, transparency is critical. We needed an audit trail. By logging the input context and the AI's reasoning for every action in the `agent_decisions` table, we can debug why the system gave a specific explanation or chose a specific question. It provides necessary observability for a multi-agent system."
+The application is orchestrated by three distinct "Agents". These aren't just prompts; they are specialized service layers in the code (`src/services/api.ts`) that interact with the database and the LLM.
+
+### A. The Teaching Agent (RAG Implementation)
+**Goal:** Teach concepts without hallucinating, using analogies appropriate for ADHD students.
+
+**How it works in code (`getDynamicExplanation` / `askMathAgent`):**
+1.  **Embedding Generation**: When a student asks a question or views a lesson, the app sends the query to the `gemini-embedding-001` API to get a 768-dimensional vector.
+2.  **Similarity Search (`pgvector`)**: The app calls a Supabase RPC function (`match_curriculum_embeddings`) passing the vector. PostgreSQL performs a cosine similarity search against the stored curriculum chunks to find the top 3 most relevant matches.
+3.  **Prompt Construction**: A prompt is built injecting the student's Grade Level, their Preferred Style (e.g., "Analogy-rich"), and the retrieved curriculum chunks as "Reference Context".
+4.  **LLM Generation**: The prompt is sent to `gemini-3.6-flash` to generate the final, grounded response.
+5.  **Audit Logging**: The action, the retrieved chunks, and the output are logged to the `agent_decisions` table.
+
+### B. The Quiz Agent (Adaptive Assessment)
+**Goal:** Generate questions that specifically target a student's weaknesses.
+
+**How it works in code (`startQuizAttempt` / `recomputeProgress`):**
+1.  **Progress Tracking**: When a student answers questions, the `recomputeProgress` engine calculates their accuracy per topic. If accuracy is <60%, the topic is marked as `weak`. It also logs specific `misconception_tag`s (e.g., `forgot_carry_hundreds`).
+2.  **Adaptive Template Selection**: When starting a quiz, the Quiz Agent fetches the student's `weak` topics and `misconception_tag`s from the `student_progress` table.
+3.  **Filtering**: It filters the database of `questions` (templates), actively seeking templates where the `distractor_rules` match the student's known misconceptions.
+4.  **Procedural Generation**: Using a helper function (`generateQuestionInstance`), it procedurally generates the math problem (e.g., randomizing `param_a` and `param_b`) while ensuring the incorrect multiple-choice options (distractors) map exactly to the targeted misconception.
+
+### C. The Report Agent (Data-to-Text Generation)
+**Goal:** Provide friendly feedback based on raw data.
+
+**How it works in code (`generateReport`):**
+1.  **Deterministic Analytics**: After a quiz, the system calculates raw metrics: `currentScore`, `previousScore`, `scoreDelta`, and a mathematical `trend` (improving, declining, or stable).
+2.  **Context Assembly**: It fetches the student's newly updated `weak_topics` and `strong_topics`.
+3.  **LLM Narrative Generation**: A JSON snapshot of these stats is passed to the Gemini LLM with a prompt to write a friendly, supportive narrative summary.
+4.  **Storage**: The resulting narrative is saved to the `reports` table.
+
+### D. The Orchestrator (Audit & Routing)
+All agents write to a central `agent_decisions` PostgreSQL table. This table logs:
+*   `agent_name` (e.g., `teaching_agent`)
+*   `decision_type`
+*   `input_snapshot` (the exact context given to the agent)
+*   `output` (what the agent decided/generated)
+*   `reasoning_summary` (Why it made that choice)
+
+This provides **observability**, which is critical when using stochastic LLMs in an educational context.
+
+---
+
+## 4. Interview Q&A Guide
+
+**Q1: Walk me through how you implemented RAG in this project.**
+*   **Answer**: "We used Google's `gemini-embedding-001` to vectorize our Grade 2-5 math curriculum and stored it in a Supabase PostgreSQL database using the `pgvector` extension. When the Teaching Agent needs to explain a concept or answer a student's question, we embed the query, perform a cosine similarity search via a Supabase RPC function (`match_curriculum_embeddings`) to fetch the top 3 relevant chunks, and inject those chunks into the prompt for `gemini-3.6-flash`. This ensures the LLM's answers are strictly grounded in our approved curriculum."
+
+**Q2: How exactly does the Quiz Agent adapt to the student?**
+*   **Answer**: "It's driven by a `student_progress` table that tracks mastery status (`weak`, `in_progress`, `mastered`) and specific `misconception_tag`s. When a quiz starts, the agent queries this table. If a student is flagged with the `forgot_carry` misconception, the Quiz Agent filters our question templates to find those that support that specific distractor rule. It then procedurally generates the math problem (randomizing the numbers) and ensures one of the multiple-choice distractors is the exact wrong answer you'd get if you forgot to carry the one."
+
+**Q3: How did you design for ADHD?**
+*   **Answer**: "From a UX perspective, we kept the interface highly minimalist to reduce cognitive load, avoiding the loud, gamified UIs typical of EdTech. We integrated 'Attention Check-ins'—interstitial breaks using calm Lottie animations (like a breathing circle) to help them refocus. At the AI level, we prompt the Teaching Agent to use bite-sized, analogy-rich explanations (like comparing numbers to marble bags) which are easier to process."
+
+**Q4: Dealing with LLMs can be unpredictable. How did you handle observability and debugging?**
+*   **Answer**: "Transparency is critical in EdTech. We built an 'Orchestrator' concept backed by an `agent_decisions` table in Postgres. Every single time an agent acts—whether the Teaching Agent generates an explanation or the Quiz Agent selects a template—we log a snapshot of the inputs, the output, and a reasoning summary. If a student gets a weird explanation, we can look at the database and see exactly which curriculum chunks were retrieved and what the prompt was."
+
+**Q5: Why did you choose Supabase over something like Firebase?**
+*   **Answer**: "We needed a relational database (PostgreSQL) for complex queries, specifically for the `pgvector` extension to handle our RAG implementation. Firebase's NoSQL structure doesn't support native vector similarity search in the same robust, relational way. Supabase also gave us excellent Row Level Security (RLS) out of the box."
