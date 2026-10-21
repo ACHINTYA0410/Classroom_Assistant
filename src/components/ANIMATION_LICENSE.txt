@@ -1,0 +1,4 @@
+The original calm shape animations authored in BreakScreen.tsx, AttentionPopup.tsx and QuizCelebration.tsx are dedicated to the public domain under CC0 1.0 Universal.
+License: https://creativecommons.org/publicdomain/zero/1.0/
+Source: these repository-local React/Framer Motion component files. No external images, audio, Lottie files or animation downloads are used.
+This dedication covers the visual animation definitions, not unrelated application code.

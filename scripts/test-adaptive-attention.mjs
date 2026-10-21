@@ -1,0 +1,62 @@
+import assert from 'node:assert/strict';
+import {createTestDatabase,seedTestDatabase,asUser,fixture as f} from './test-database.mjs';
+const db=await createTestDatabase();let checks=0;
+const ok=(value,message)=>{assert.ok(value,message);checks++;};
+const reject=async(fn,pattern)=>{await assert.rejects(fn,pattern);checks++;};
+const rpc=async(name,args)=>(await db.query(`SELECT public.${name}(${args.map((_,i)=>'$'+(i+1)).join(',')}) AS result`,args)).rows[0].result;
+const service=async(fn)=>{await db.exec('SET ROLE service_role');try{return await fn();}finally{await db.exec('RESET ROLE');}};
+const visit='00000000-0000-4000-8000-000000000101';
+const snapshot=(student=f.a,seconds=0,finished=false)=>service(()=>rpc('attention_context',[student,f.section,visit,seconds,finished]));
+const offer=()=>service(()=>rpc('offer_attention',[f.a,f.section,visit,'Possible support need','build_ten',{prompt:'Build a ten',tiles:[10],answer:1},{baseline_seconds:60}]));
+try{
+ await seedTestDatabase(db);
+ ok((await snapshot()).blocked,'cannot observe a lesson that has not started');
+ const progress=await asUser(db,f.a,()=>rpc('learning_progress',[f.session]));
+ await asUser(db,f.b,()=>rpc('learning_progress',[f.session]));
+ ok((await snapshot(f.a,9000)).visible_seconds===0,'first request cannot forge elapsed time');
+ await db.query("UPDATE attention_section_visits SET updated_at=clock_timestamp()-interval '30 seconds' WHERE id=$1",[visit]);
+ let state=await snapshot(f.a,9000);
+ ok(state.visible_seconds===30&&state.continuous_seconds===30,'elapsed section time capped by server and heartbeat');
+ await reject(()=>snapshot(f.b),/Visit not owned/);
+ await reject(()=>asUser(db,f.a,()=>rpc('attention_context',[f.a,f.section,visit,0,false])),/permission denied/);
+ await reject(()=>asUser(db,f.a,()=>rpc('offer_attention',[f.a,f.section,visit,'Test','addition',{answer:1},{}])),/permission denied/);
+ await reject(()=>asUser(db,f.a,()=>db.query('UPDATE attention_section_visits SET visible_seconds=999')),/permission denied/);
+ ok((await asUser(db,f.b,()=>db.query('SELECT * FROM attention_section_visits'))).rows.length===0,'RLS isolates observations');
+ // Personal baseline aggregates visits of comparable completed sections, excludes testing provenance.
+ for(let i=0;i<3;i++){
+  const section=(await db.query("INSERT INTO session_sections(session_id,section_type,order_index,content) VALUES($1,'practice',$2,'Comparable section') RETURNING id",[f.session,2+i])).rows[0].id;
+  await db.query('INSERT INTO attention_section_visits(id,student_id,section_id,session_id,visible_seconds,finished) VALUES(gen_random_uuid(),$1,$2,$3,$4,true)',[f.a,section,f.session,60+i*10]);
+ }
+ state=await snapshot();ok(state.baseline_seconds.length===3,'completed comparable sections form a personal baseline');
+ const event=await offer();ok(event.id&&event.signals_snapshot.baseline_seconds===60,'support decision evidence persisted');
+ ok((await offer()).id===event.id,'duplicate polls restore one outstanding prompt');
+ await reject(()=>asUser(db,f.b,()=>rpc('answer_attention',[event.id,1,false])),/not owned/);
+ const answer=await asUser(db,f.a,()=>rpc('answer_attention',[event.id,2,false]));
+ ok(answer.is_correct===false,'deterministic stored key grades the ungraded activity');
+ ok((await db.query('SELECT * FROM session_responses')).rows.length===0,'check-in never manufactures practice or mastery data');
+ ok(await offer()===null,'answered prompt respects cooldown');
+ await db.query("UPDATE attention_events SET shown_at=clock_timestamp()-interval '5 minutes',answered_at=clock_timestamp()-interval '5 minutes' WHERE id=$1",[event.id]);
+ const next=await offer();ok(next.id!==event.id,'new prompt possible after cooldown');
+ await asUser(db,f.a,()=>rpc('answer_attention',[next.id,null,true]));
+ await db.query("UPDATE attention_events SET shown_at=clock_timestamp()-interval '3 minutes',answered_at=clock_timestamp()-interval '3 minutes' WHERE id=$1",[next.id]);
+ ok(await offer()===null,'skips receive a longer four-minute cooldown');
+ await db.query("UPDATE attention_events SET shown_at=clock_timestamp()-interval '5 minutes',answered_at=clock_timestamp()-interval '5 minutes' WHERE id=$1",[next.id]);
+ const third=await offer();await asUser(db,f.a,()=>rpc('answer_attention',[third.id,1,false]));
+ await db.query("UPDATE attention_events SET shown_at=clock_timestamp()-interval '5 minutes',answered_at=clock_timestamp()-interval '5 minutes' WHERE id=$1",[third.id]);
+ ok(await offer()===null,'maximum three prompts per session');
+ const b=(await service(()=>rpc('begin_learning_break',[f.a,progress.id]))).break;
+ ok((await snapshot()).blocked,'active break suppresses observations');
+ ok(await offer()===null,'active break suppresses offers');
+ await asUser(db,f.a,()=>rpc('end_learning_break',[b.id,[],false]));
+ ok((await snapshot()).continuous_seconds===0,'break resets continuous effort');
+ const attempt=(await db.query("INSERT INTO quiz_attempts(student_id,quiz_id,status,time_limit_seconds) VALUES($1,$2,'in_progress',600) RETURNING id",[f.a,f.quiz])).rows[0].id;
+ ok((await snapshot()).blocked,'active quiz suppresses observations');
+ ok(await offer()===null,'active quiz suppresses offers');
+ await db.query("UPDATE quiz_attempts SET status='abandoned' WHERE id=$1",[attempt]);
+ await snapshot(f.a,30,true);
+ ok((await db.query('SELECT finished FROM attention_section_visits WHERE id=$1',[visit])).rows[0].finished,'section completion recorded');
+ ok(await offer()===null,'finished visit cannot produce a popup');
+ await service(()=>rpc('calendar_test_complete',[f.a,f.session]));
+ ok((await snapshot()).blocked,'test shortcut sessions excluded from attention data');
+ console.log(JSON.stringify({status:'passed',checks,scope:'adaptive attention SQL/RLS/clock/cooldown'}));
+}finally{await db.close();}
